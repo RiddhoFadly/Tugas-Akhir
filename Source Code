@@ -1,0 +1,108 @@
+import logging
+import time
+from netmiko import ConnectHandler, SSHDetect, redispatch
+
+def debugging_log():
+    logging.basicConfig(filename='debug.log', level=logging.DEBUG)
+
+# Koneksi ke server jumphost
+jumphost = {
+    "device_type": "linux",
+    "ip": "10.24.131.83",
+    "username": "SLB.RiddoFP",
+    "password": "R1DhOFP#!",
+}
+ssh_jumphost = ConnectHandler(**jumphost)
+output = ssh_jumphost.read_channel()
+
+debugging_log()
+
+with open('Capture Before EID (Global).txt', 'r') as file:
+    config = file.readlines()
+
+# menghapus karakter newline pada setiap elemen di dalam list
+isi_file = [line.rstrip('\n') for line in config]
+# print(isi_file)
+
+prompt = ssh_jumphost.find_prompt()
+print("ssh connection established" + prompt)
+
+# Membuat sebuah list Site
+iplist = open("iplist.txt", "r")
+for x in iplist:
+    x = x.strip()
+
+    try:
+        ssh_jumphost.write_channel("ssh ca_usr@" +x+'\n')
+        time.sleep(4)
+        output1 = ssh_jumphost.read_channel() 
+        print(output1)
+
+        # Mengecek apakah ada pesan "Are you sure you want to continue connecting (yes/no)?"
+        if "Are you sure you want to continue connecting (yes/no)?" in output1:
+            ssh_jumphost.write_channel('yes\n')
+            time.sleep(2)
+
+        ssh_jumphost.write_channel('Welcome@123\n')
+        time.sleep(3)
+        output2 = ssh_jumphost.read_channel()
+        print(output2)
+
+        if "denied" in output2:
+            ssh_jumphost.write_channel('\3')
+            time.sleep(2)
+            ssh_jumphost.write_channel("ssh ca_adm@" +x+'\n')
+            time.sleep(4)
+            output2 = ssh_jumphost.read_channel() 
+            print(output2)
+
+            # Mengecek apakah ada pesan "Are you sure you want to continue connecting (yes/no)?"
+            if "Are you sure you want to continue connecting (yes/no)?" in output2:
+                ssh_jumphost.write_channel('yes\n')
+                time.sleep(2)
+
+            ssh_jumphost.write_channel('Welcome@123\n')
+            time.sleep(3)
+            output2 = ssh_jumphost.read_channel()
+            
+            print(output2)
+            if "denied" in output2:
+                ssh_jumphost.write_channel('\3')
+                time.sleep(2)
+                continue;
+
+        prompt = ssh_jumphost.find_prompt()
+        print(prompt)
+        hostname = prompt.replace('[local]', "").replace('#',"") 
+        print(hostname)
+
+        # Eksekusi perintah "show port detail | i 10GBase-ZR"
+        ssh_jumphost.write_channel("show port detail | i 10GBase-ZR\n")
+        time.sleep(2)
+        output_port = ssh_jumphost.read_channel()
+        print(output_port)
+
+        # Hitung total dari output yang sesuai
+        total_10GBaseZR = output_port.count("Media type                 : 10GBase-ZR")
+        print(f"Total 10GBase-ZR pada {hostname}: {total_10GBaseZR}")
+
+        # Simpan hasil perhitungan dalam file
+        with open(f"{hostname}_10GBaseZR_total.txt", 'w') as total_file:
+            total_file.write(f"Total 10GBase-ZR pada {hostname}: {total_10GBaseZR}\n")
+
+        for command in isi_file:
+            ssh_jumphost.write_channel(f'{command}\n')
+            time.sleep(2)
+            output3 = ssh_jumphost.read_channel()
+            print(output3)
+            capture = open(f"{hostname}.log", 'a')
+            capture.write(output3)
+
+    except Exception as e:
+        print(f"Failed to connect to {x}: {e}")
+        continue
+
+    ssh_jumphost.write_channel('exit\n')
+    time.sleep(2)
+
+iplist.close()
